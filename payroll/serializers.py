@@ -3,9 +3,10 @@ from .models import SalaryStructure, Payslip
 
 
 class SalarySerializer(serializers.ModelSerializer):
-    gross = serializers.ReadOnlyField()
-    net   = serializers.ReadOnlyField()
+    gross     = serializers.ReadOnlyField()
+    net       = serializers.ReadOnlyField()
     user_name = serializers.CharField(source='user.full_name', read_only=True)
+    user_emp_id = serializers.CharField(source='user.employee_id', read_only=True)
 
     class Meta:
         model  = SalaryStructure
@@ -13,7 +14,10 @@ class SalarySerializer(serializers.ModelSerializer):
 
 
 class PayslipSerializer(serializers.ModelSerializer):
-    user_name = serializers.CharField(source='user.full_name', read_only=True)
+    user_name   = serializers.CharField(source='user.full_name',    read_only=True)
+    user_email  = serializers.CharField(source='user.email',        read_only=True)
+    user_emp_id = serializers.CharField(source='user.employee_id',  read_only=True)
+    user_dept   = serializers.CharField(source='user.department',   read_only=True)
 
     class Meta:
         model  = Payslip
