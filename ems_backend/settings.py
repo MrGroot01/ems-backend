@@ -1,11 +1,18 @@
 from pathlib import Path
 from datetime import timedelta
 import os
+from dotenv import load_dotenv
+
+# Load .env file
+load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-SECRET_KEY = os.environ.get('SECRET_KEY', 'ems-super-secret-key-change-in-production-xyz')
-DEBUG = True
-ALLOWED_HOSTS = ['*']
+
+# ── Security ───────────────────────────────────────────────
+SECRET_KEY     = os.environ.get('SECRET_KEY', 'ems-super-secret-key-change-in-production-xyz')
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')  # ✅ from .env
+DEBUG          = True
+ALLOWED_HOSTS  = ['*']
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -25,6 +32,7 @@ INSTALLED_APPS = [
     'tasks',
     'payroll',
     'notifications',
+    'ai_assistant',
 ]
 
 MIDDLEWARE = [
@@ -38,8 +46,8 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
-ROOT_URLCONF = 'ems_backend.urls'
-WSGI_APPLICATION = 'ems_backend.wsgi.application'
+ROOT_URLCONF      = 'ems_backend.urls'
+WSGI_APPLICATION  = 'ems_backend.wsgi.application'
 
 TEMPLATES = [{
     'BACKEND': 'django.template.backends.django.DjangoTemplates',
@@ -72,15 +80,15 @@ REST_FRAMEWORK = {
 }
 
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME':  timedelta(hours=8),
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
-    'ROTATE_REFRESH_TOKENS':  True,
+    'ACCESS_TOKEN_LIFETIME':    timedelta(hours=8),
+    'REFRESH_TOKEN_LIFETIME':   timedelta(days=7),
+    'ROTATE_REFRESH_TOKENS':    True,
     'BLACKLIST_AFTER_ROTATION': True,
-    'AUTH_HEADER_TYPES': ('Bearer',),
+    'AUTH_HEADER_TYPES':        ('Bearer',),
 }
 
-CORS_ALLOW_ALL_ORIGINS = True
-CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_ALL_ORIGINS  = True
+CORS_ALLOW_CREDENTIALS  = True
 
 LANGUAGE_CODE = 'en-us'
 TIME_ZONE     = 'UTC'
@@ -91,6 +99,6 @@ MEDIA_URL     = '/media/'
 MEDIA_ROOT    = BASE_DIR / 'media'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-# Email – prints to console in dev (OTP visible in terminal)
+# Email – prints to console in dev
 EMAIL_BACKEND      = 'django.core.mail.backends.console.EmailBackend'
 DEFAULT_FROM_EMAIL = 'noreply@emspro.com'
