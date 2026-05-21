@@ -18,4 +18,5 @@ class Attendance(models.Model):
         db_table = 'attendance'
         unique_together = ['user', 'date']
 
-    def __str__(self): return f"{self.user.full_name} – {self.date} – {self.status}"
+    def __str__(self): 
+        return f"{self.user.full_name} – {self.date} – {self.status}"
