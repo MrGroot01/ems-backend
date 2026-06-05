@@ -17,6 +17,8 @@ ALLOWED_HOSTS  = os.environ.get('ALLOWED_HOSTS', '*').split(',')
 # ── CSRF Trusted Origins ───────────────────────────────────
 CSRF_TRUSTED_ORIGINS = [
     'https://ems-backend-5ptz.onrender.com',
+    'https://ems-frontend.vercel.app',
+    'https://ems-frontend-mrgroot01.vercel.app',
     'http://localhost:5173',
     'http://localhost:3000',
     'http://127.0.0.1:5173',
@@ -110,10 +112,12 @@ SIMPLE_JWT = {
 }
 
 # ── CORS ───────────────────────────────────────────────────
-CORS_ALLOW_ALL_ORIGINS  = True
+CORS_ALLOW_ALL_ORIGINS  = False          # ← changed to False
 CORS_ALLOW_CREDENTIALS  = True
 CORS_ALLOWED_ORIGINS = [
     'https://ems-backend-5ptz.onrender.com',
+    'https://ems-frontend.vercel.app',          # ← vercel URL
+    'https://ems-frontend-mrgroot01.vercel.app', # ← vercel URL
     'http://localhost:5173',
     'http://localhost:3000',
     'http://127.0.0.1:5173',
