@@ -14,6 +14,15 @@ GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
 DEBUG          = os.environ.get('DEBUG', 'True') == 'True'
 ALLOWED_HOSTS  = os.environ.get('ALLOWED_HOSTS', '*').split(',')
 
+# ── CSRF Trusted Origins ───────────────────────────────────
+CSRF_TRUSTED_ORIGINS = [
+    'https://ems-backend-5ptz.onrender.com',
+    'http://localhost:5173',
+    'http://localhost:3000',
+    'http://127.0.0.1:5173',
+    'http://127.0.0.1:8000',
+]
+
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
@@ -38,7 +47,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
-    'whitenoise.middleware.WhiteNoiseMiddleware', 
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -100,8 +109,16 @@ SIMPLE_JWT = {
     'AUTH_HEADER_TYPES':        ('Bearer',),
 }
 
+# ── CORS ───────────────────────────────────────────────────
 CORS_ALLOW_ALL_ORIGINS  = True
 CORS_ALLOW_CREDENTIALS  = True
+CORS_ALLOWED_ORIGINS = [
+    'https://ems-backend-5ptz.onrender.com',
+    'http://localhost:5173',
+    'http://localhost:3000',
+    'http://127.0.0.1:5173',
+    'http://127.0.0.1:8000',
+]
 
 LANGUAGE_CODE      = 'en-us'
 TIME_ZONE          = 'Asia/Kolkata'
@@ -153,5 +170,5 @@ LOGGING = {
     },
 }
 
-# ── At bottom of settings.py — add this ───────────────────
+# ── Static Files ───────────────────────────────────────────
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
