@@ -3,7 +3,8 @@ from rest_framework_simplejwt.views import TokenRefreshView
 from .views import (
     RegisterView, LoginView, LogoutView, ProfileView,
     ForgotPasswordView, VerifyOTPView, ResetPasswordView,
-    ChangePasswordView, ListUsersView
+    ChangePasswordView, ListUsersView,
+    GetCaptchaView, VerifyCaptchaView,
 )
 
 urlpatterns = [
@@ -17,5 +18,6 @@ urlpatterns = [
     path('verify-otp/',      VerifyOTPView.as_view()),
     path('reset-password/',  ResetPasswordView.as_view()),
     path('users/',           ListUsersView.as_view()),
-    
+    path('captcha/',         GetCaptchaView.as_view()),
+    path('captcha/verify/',  VerifyCaptchaView.as_view()),
 ]

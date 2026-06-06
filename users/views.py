@@ -5,6 +5,9 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.exceptions import TokenError
 from django.conf import settings
+from django.utils import timezone
+from captcha.models import CaptchaStore
+from captcha.helpers import captcha_image_url
 from .models import User
 from .serializers import (
     RegisterSerializer, LoginSerializer, UserProfileSerializer,
@@ -97,9 +100,7 @@ class ForgotPasswordView(APIView):
             try:
                 user = User.objects.get(email=email)
                 otp  = user.generate_otp()
-
                 print(f"[OTP CODE] Email:{email} OTP:{otp}", flush=True)
-
                 try:
                     sent = send_otp_email(email, otp, user.full_name)
                     if sent:
@@ -108,9 +109,7 @@ class ForgotPasswordView(APIView):
                         print(f"[OTP EMAIL FAILED] {email}", flush=True)
                 except Exception as e:
                     print(f"[OTP EMAIL ERROR] {email}: {str(e)}", flush=True)
-
                 return Response({'message': 'OTP sent to your email'})
-
             except User.DoesNotExist:
                 return Response(
                     {'error': 'No account with this email'},
@@ -170,3 +169,51 @@ class ListUsersView(APIView):
     def get(self, request):
         users = User.objects.filter(role='employee', is_active=True)
         return Response(UserProfileSerializer(users, many=True).data)
+
+
+# ── CAPTCHA VIEWS ──────────────────────────────────────────
+
+class GetCaptchaView(APIView):
+    """Generate captcha — returns key + image URL"""
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        key       = CaptchaStore.generate_key()
+        image_url = request.build_absolute_uri(captcha_image_url(key))
+        return Response({
+            'captcha_key':       key,
+            'captcha_image_url': image_url,
+        })
+
+
+class VerifyCaptchaView(APIView):
+    """Verify captcha value"""
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        key   = request.data.get('captcha_key', '')
+        value = request.data.get('captcha_value', '').strip().upper()
+
+        if not key or not value:
+            return Response(
+                {'error': 'Captcha key and value required'},
+                status=400
+            )
+        try:
+            captcha = CaptchaStore.objects.get(
+                hashkey=key,
+                expiration__gt=timezone.now()
+            )
+            if captcha.response.upper() == value:
+                captcha.delete()
+                return Response({'valid': True, 'message': 'Captcha verified'})
+            else:
+                return Response(
+                    {'valid': False, 'error': 'Wrong captcha! Try again.'},
+                    status=400
+                )
+        except CaptchaStore.DoesNotExist:
+            return Response(
+                {'valid': False, 'error': 'Captcha expired. Please refresh.'},
+                status=400
+            )

@@ -8,13 +8,11 @@ load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# ── Security ───────────────────────────────────────────────
 SECRET_KEY     = os.environ.get('SECRET_KEY', 'ems-super-secret-key')
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
 DEBUG          = os.environ.get('DEBUG', 'True') == 'True'
 ALLOWED_HOSTS  = os.environ.get('ALLOWED_HOSTS', '*').split(',')
 
-# ── CSRF Trusted Origins ───────────────────────────────────
 CSRF_TRUSTED_ORIGINS = [
     'https://ems-backend-5ptz.onrender.com',
     'https://ems-frontend-melon1x12-mrgroot01s-projects.vercel.app',
@@ -37,6 +35,7 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt',
     'rest_framework_simplejwt.token_blacklist',
     'corsheaders',
+    'captcha',        # ← NEW
     'users',
     'employees',
     'attendance',
@@ -91,7 +90,6 @@ else:
         }
     }
 
-# ── Auth ───────────────────────────────────────────────────
 AUTH_USER_MODEL = 'users.User'
 
 REST_FRAMEWORK = {
@@ -112,7 +110,6 @@ SIMPLE_JWT = {
     'AUTH_HEADER_TYPES':        ('Bearer',),
 }
 
-# ── CORS ───────────────────────────────────────────────────
 CORS_ALLOW_ALL_ORIGINS  = True
 CORS_ALLOW_CREDENTIALS  = True
 CORS_ALLOWED_ORIGINS = [
@@ -136,12 +133,12 @@ MEDIA_URL          = '/media/'
 MEDIA_ROOT         = BASE_DIR / 'media'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-# ── Email → Brevo SMTP ─────────────────────────────────────
+# ── Email → Brevo ──────────────────────────────────────────
 EMAIL_BACKEND       = os.environ.get(
                         'EMAIL_BACKEND',
                         'django.core.mail.backends.smtp.EmailBackend'
                       )
-EMAIL_HOST          = os.environ.get('EMAIL_HOST', 'smtp-relay.brevo.com')  # ← reads from env
+EMAIL_HOST          = os.environ.get('EMAIL_HOST', 'smtp-relay.brevo.com')
 EMAIL_PORT          = int(os.environ.get('EMAIL_PORT', 587))
 EMAIL_USE_TLS       = os.environ.get('EMAIL_USE_TLS', 'True') == 'True'
 EMAIL_USE_SSL       = os.environ.get('EMAIL_USE_SSL', 'False') == 'True'
@@ -150,7 +147,20 @@ EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
 DEFAULT_FROM_EMAIL  = os.environ.get('DEFAULT_FROM_EMAIL', 'noreply@emspro.com')
 EMAIL_TIMEOUT       = 30
 
-# ── Cache (OTP Storage) ────────────────────────────────────
+# ── CAPTCHA ────────────────────────────────────────────────
+CAPTCHA_LENGTH           = 5
+CAPTCHA_FONT_SIZE        = 36
+CAPTCHA_IMAGE_SIZE       = (160, 55)
+CAPTCHA_BACKGROUND_COLOR = '#f1f5f9'
+CAPTCHA_FOREGROUND_COLOR = '#2563eb'
+CAPTCHA_NOISE_FUNCTIONS  = (
+    'captcha.helpers.noise_arcs',
+    'captcha.helpers.noise_dots',
+)
+CAPTCHA_CHALLENGE_FUNCT  = 'captcha.helpers.random_char_challenge'
+CAPTCHA_LETTER_ROTATION  = (-15, 15)
+
+# ── Cache ──────────────────────────────────────────────────
 CACHES = {
     'default': {
         'BACKEND':  'django.core.cache.backends.locmem.LocMemCache',
@@ -181,5 +191,4 @@ LOGGING = {
     },
 }
 
-# ── Static Files ───────────────────────────────────────────
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
