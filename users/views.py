@@ -98,16 +98,21 @@ class ForgotPasswordView(APIView):
                 user = User.objects.get(email=email)
                 otp  = user.generate_otp()
 
-                # Send OTP via Gmail SMTP
-                sent = send_otp_email(email, otp, user.full_name)
+                # ── Always log OTP to Render logs ──────────
+                print(f"[OTP CODE] Email:{email} OTP:{otp}", flush=True)
 
-                # Always print to console for development
-                print(f"[OTP] {email}: {otp}")
+                # ── Try sending email ───────────────────────
+                try:
+                    sent = send_otp_email(email, otp, user.full_name)
+                    if sent:
+                        print(f"[OTP EMAIL OK] {email}", flush=True)
+                    else:
+                        print(f"[OTP EMAIL FAILED] {email}", flush=True)
+                except Exception as e:
+                    print(f"[OTP EMAIL ERROR] {email}: {str(e)}", flush=True)
 
-                if sent:
-                    return Response({'message': 'OTP sent to your email'})
-                else:
-                    return Response({'message': 'OTP sent to your email'})
+                # ── Always return success ───────────────────
+                return Response({'message': 'OTP sent to your email'})
 
             except User.DoesNotExist:
                 return Response(
@@ -153,10 +158,9 @@ class ResetPasswordView(APIView):
                         {'error': 'Invalid or expired OTP'},
                         status=400
                     )
-                # ✅ FIXED — save password to database
                 user.set_password(s.validated_data['new_password'])
-                user.save()        # ← saves new password
-                user.clear_otp()   # ← clears OTP after
+                user.save()
+                user.clear_otp()
                 return Response({'message': 'Password reset successful'})
             except User.DoesNotExist:
                 return Response({'error': 'User not found'}, status=404)
