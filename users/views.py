@@ -1,175 +1,169 @@
-from rest_framework import generics
-from rest_framework.response import Response
-from rest_framework.views import APIView
-from rest_framework.permissions import AllowAny, IsAuthenticated
-from rest_framework_simplejwt.tokens import RefreshToken
-from rest_framework_simplejwt.exceptions import TokenError
+import os
+import logging
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from django.conf import settings
-from .models import User
-from .serializers import (
-    RegisterSerializer, LoginSerializer, UserProfileSerializer,
-    ForgotPasswordSerializer, VerifyOTPSerializer, ResetPasswordSerializer,
-    ChangePasswordSerializer
-)
-from .aws_services import send_otp_email
+
+logger = logging.getLogger(__name__)
 
 
-def get_tokens(user):
-    r = RefreshToken.for_user(user)
-    return {'access': str(r.access_token), 'refresh': str(r)}
+def send_otp_email(email, otp, user_name=''):
+    """Send OTP via Brevo SMTP directly"""
+    try:
+        msg = MIMEMultipart('alternative')
+        msg['Subject'] = 'EMS Pro — Your Password Reset OTP'
+        msg['From']    = settings.DEFAULT_FROM_EMAIL
+        msg['To']      = email
+
+        text = f'Your EMS Pro OTP is: {otp}\nValid for 5 minutes.'
+        html = f'''
+        <div style="font-family:Arial,sans-serif;max-width:500px;
+                    margin:auto;padding:30px;border:1px solid #e2e8f0;
+                    border-radius:10px;">
+            <h2 style="color:#2563eb;">🔐 EMS Pro</h2>
+            <p>Hello <strong>{user_name}</strong>,</p>
+            <p>Your password reset OTP is:</p>
+            <div style="background:#f1f5f9;padding:20px;
+                        text-align:center;border-radius:8px;
+                        margin:20px 0;">
+                <h1 style="color:#2563eb;letter-spacing:10px;
+                           font-size:36px;">{otp}</h1>
+            </div>
+            <p>⏰ Valid for <strong>5 minutes</strong> only.</p>
+            <p>🔒 Do not share this OTP with anyone.</p>
+            <hr style="margin:20px 0;"/>
+            <small style="color:#94a3b8;">EMS Pro</small>
+        </div>
+        '''
+
+        msg.attach(MIMEText(text, 'plain'))
+        msg.attach(MIMEText(html,  'html'))
+
+        # ── Connect to Brevo SMTP directly ────────────────
+        with smtplib.SMTP(settings.EMAIL_HOST, settings.EMAIL_PORT,
+                          timeout=30) as server:
+            server.ehlo()
+            server.starttls()
+            server.ehlo()
+            server.login(settings.EMAIL_HOST_USER,
+                         settings.EMAIL_HOST_PASSWORD)
+            server.sendmail(settings.DEFAULT_FROM_EMAIL,
+                            [email], msg.as_string())
+
+        print(f'[EMAIL SENT] OTP to {email}', flush=True)
+        logger.info(f'OTP email sent to {email}')
+        return True
+
+    except Exception as e:
+        print(f'[EMAIL ERROR] {email}: {str(e)}', flush=True)
+        logger.error(f'Email error: {str(e)}')
+        return False
 
 
-class RegisterView(APIView):
-    permission_classes = [AllowAny]
+def send_payslip_email(email, user_name, month, year, net_salary):
+    try:
+        msg = MIMEMultipart('alternative')
+        msg['Subject'] = f'Payslip for {month}/{year} — EMS Pro'
+        msg['From']    = settings.DEFAULT_FROM_EMAIL
+        msg['To']      = email
 
-    def post(self, request):
-        s = RegisterSerializer(data=request.data)
-        if s.is_valid():
-            user = s.save()
-            return Response({
-                'message': 'Registration successful',
-                'user':    UserProfileSerializer(user).data,
-                'tokens':  get_tokens(user)
-            }, status=201)
-        return Response(s.errors, status=400)
+        html = f'''
+        <div style="font-family:Arial,sans-serif;max-width:500px;
+                    margin:auto;padding:30px;">
+            <h2 style="color:#2563eb;">💰 Payslip Generated</h2>
+            <p>Hello <strong>{user_name}</strong>,</p>
+            <p>Your payslip for <strong>{month}/{year}</strong>
+               has been generated.</p>
+            <div style="background:#f0fdf4;padding:20px;
+                        border-radius:8px;margin:20px 0;">
+                <h3 style="color:#16a34a;">Net Salary: ₹{net_salary}</h3>
+            </div>
+            <p>Login to EMS Pro to view your full payslip.</p>
+            <hr/><small style="color:#94a3b8;">EMS Pro</small>
+        </div>
+        '''
+        msg.attach(MIMEText(html, 'html'))
 
-
-class LoginView(APIView):
-    permission_classes = [AllowAny]
-
-    def post(self, request):
-        s = LoginSerializer(data=request.data)
-        if s.is_valid():
-            user = s.validated_data['user']
-            return Response({
-                'message': 'Login successful',
-                'user':    UserProfileSerializer(user).data,
-                'tokens':  get_tokens(user)
-            })
-        return Response(s.errors, status=401)
-
-
-class LogoutView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request):
-        try:
-            token = RefreshToken(request.data.get('refresh'))
-            token.blacklist()
-            return Response({'message': 'Logged out successfully'})
-        except TokenError:
-            return Response({'error': 'Invalid token'}, status=400)
+        with smtplib.SMTP(settings.EMAIL_HOST, settings.EMAIL_PORT,
+                          timeout=30) as server:
+            server.ehlo()
+            server.starttls()
+            server.login(settings.EMAIL_HOST_USER,
+                         settings.EMAIL_HOST_PASSWORD)
+            server.sendmail(settings.DEFAULT_FROM_EMAIL,
+                            [email], msg.as_string())
+        return True
+    except Exception as e:
+        logger.error(f'Payslip email error: {str(e)}')
+        return False
 
 
-class ProfileView(generics.RetrieveUpdateAPIView):
-    serializer_class   = UserProfileSerializer
-    permission_classes = [IsAuthenticated]
+def send_leave_status_email(email, user_name, status, leave_type, dates):
+    try:
+        color = '#16a34a' if status == 'approved' else '#dc2626'
+        emoji = '✅' if status == 'approved' else '❌'
 
-    def get_object(self):
-        return self.request.user
+        msg = MIMEMultipart('alternative')
+        msg['Subject'] = f'{emoji} Leave {status.title()} — EMS Pro'
+        msg['From']    = settings.DEFAULT_FROM_EMAIL
+        msg['To']      = email
 
+        html = f'''
+        <div style="font-family:Arial,sans-serif;max-width:500px;
+                    margin:auto;padding:30px;">
+            <h2 style="color:{color};">{emoji} Leave {status.title()}</h2>
+            <p>Hello <strong>{user_name}</strong>,</p>
+            <p>Your <strong>{leave_type}</strong> leave has been
+               <strong style="color:{color};">{status}</strong>.</p>
+            <p>📅 Dates: {dates}</p>
+            <hr/><small style="color:#94a3b8;">EMS Pro</small>
+        </div>
+        '''
+        msg.attach(MIMEText(html, 'html'))
 
-class ChangePasswordView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request):
-        s = ChangePasswordSerializer(data=request.data)
-        if s.is_valid():
-            user = request.user
-            if not user.check_password(s.validated_data['old_password']):
-                return Response(
-                    {'error': 'Current password is incorrect'},
-                    status=400
-                )
-            user.set_password(s.validated_data['new_password'])
-            user.save()
-            return Response({'message': 'Password changed successfully'})
-        return Response(s.errors, status=400)
-
-
-class ForgotPasswordView(APIView):
-    permission_classes = [AllowAny]
-
-    def post(self, request):
-        s = ForgotPasswordSerializer(data=request.data)
-        if s.is_valid():
-            email = s.validated_data['email']
-            try:
-                user = User.objects.get(email=email)
-                otp  = user.generate_otp()
-
-                # ── Always log OTP to Render logs ──────────
-                print(f"[OTP CODE] Email:{email} OTP:{otp}", flush=True)
-
-                # ── Try sending email ───────────────────────
-                try:
-                    sent = send_otp_email(email, otp, user.full_name)
-                    if sent:
-                        print(f"[OTP EMAIL OK] {email}", flush=True)
-                    else:
-                        print(f"[OTP EMAIL FAILED] {email}", flush=True)
-                except Exception as e:
-                    print(f"[OTP EMAIL ERROR] {email}: {str(e)}", flush=True)
-
-                # ── Always return success ───────────────────
-                return Response({'message': 'OTP sent to your email'})
-
-            except User.DoesNotExist:
-                return Response(
-                    {'error': 'No account with this email'},
-                    status=404
-                )
-        return Response(s.errors, status=400)
+        with smtplib.SMTP(settings.EMAIL_HOST, settings.EMAIL_PORT,
+                          timeout=30) as server:
+            server.ehlo()
+            server.starttls()
+            server.login(settings.EMAIL_HOST_USER,
+                         settings.EMAIL_HOST_PASSWORD)
+            server.sendmail(settings.DEFAULT_FROM_EMAIL,
+                            [email], msg.as_string())
+        return True
+    except Exception as e:
+        logger.error(f'Leave email error: {str(e)}')
+        return False
 
 
-class VerifyOTPView(APIView):
-    permission_classes = [AllowAny]
+def send_task_reminder_email(email, user_name, task_title, due_date):
+    try:
+        msg = MIMEMultipart('alternative')
+        msg['Subject'] = f'⚠️ Task Deadline: {task_title}'
+        msg['From']    = settings.DEFAULT_FROM_EMAIL
+        msg['To']      = email
 
-    def post(self, request):
-        s = VerifyOTPSerializer(data=request.data)
-        if s.is_valid():
-            email = s.validated_data['email']
-            otp   = s.validated_data['otp']
-            try:
-                user = User.objects.get(email=email)
-                if user.is_otp_valid(otp):
-                    return Response({'message': 'OTP verified'})
-                return Response(
-                    {'error': 'Invalid or expired OTP'},
-                    status=400
-                )
-            except User.DoesNotExist:
-                return Response({'error': 'User not found'}, status=404)
-        return Response(s.errors, status=400)
+        html = f'''
+        <div style="font-family:Arial,sans-serif;max-width:500px;
+                    margin:auto;padding:30px;">
+            <h2 style="color:#f59e0b;">⚠️ Task Deadline Reminder</h2>
+            <p>Hello <strong>{user_name}</strong>,</p>
+            <p>Task <strong>{task_title}</strong> is due on
+               <strong>{due_date}</strong>.</p>
+            <hr/><small style="color:#94a3b8;">EMS Pro</small>
+        </div>
+        '''
+        msg.attach(MIMEText(html, 'html'))
 
-
-class ResetPasswordView(APIView):
-    permission_classes = [AllowAny]
-
-    def post(self, request):
-        s = ResetPasswordSerializer(data=request.data)
-        if s.is_valid():
-            email = s.validated_data['email']
-            otp   = s.validated_data['otp']
-            try:
-                user = User.objects.get(email=email)
-                if not user.is_otp_valid(otp):
-                    return Response(
-                        {'error': 'Invalid or expired OTP'},
-                        status=400
-                    )
-                user.set_password(s.validated_data['new_password'])
-                user.save()
-                user.clear_otp()
-                return Response({'message': 'Password reset successful'})
-            except User.DoesNotExist:
-                return Response({'error': 'User not found'}, status=404)
-        return Response(s.errors, status=400)
-
-
-class ListUsersView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request):
-        users = User.objects.filter(role='employee', is_active=True)
-        return Response(UserProfileSerializer(users, many=True).data)
+        with smtplib.SMTP(settings.EMAIL_HOST, settings.EMAIL_PORT,
+                          timeout=30) as server:
+            server.ehlo()
+            server.starttls()
+            server.login(settings.EMAIL_HOST_USER,
+                         settings.EMAIL_HOST_PASSWORD)
+            server.sendmail(settings.DEFAULT_FROM_EMAIL,
+                            [email], msg.as_string())
+        return True
+    except Exception as e:
+        logger.error(f'Task reminder error: {str(e)}')
+        return False
