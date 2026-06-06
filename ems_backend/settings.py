@@ -17,8 +17,9 @@ ALLOWED_HOSTS  = os.environ.get('ALLOWED_HOSTS', '*').split(',')
 # ── CSRF Trusted Origins ───────────────────────────────────
 CSRF_TRUSTED_ORIGINS = [
     'https://ems-backend-5ptz.onrender.com',
+    'https://ems-frontend-melon1x12-mrgroot01s-projects.vercel.app',
     'https://ems-frontend.vercel.app',
-    'https://ems-frontend-mrgroot01.vercel.app',
+    'https://ems-pro.vercel.app',
     'http://localhost:5173',
     'http://localhost:3000',
     'http://127.0.0.1:5173',
@@ -118,6 +119,7 @@ CORS_ALLOWED_ORIGINS = [
     'https://ems-backend-5ptz.onrender.com',
     'https://ems-frontend-melon1x12-mrgroot01s-projects.vercel.app',
     'https://ems-frontend.vercel.app',
+    'https://ems-pro.vercel.app',
     'http://localhost:5173',
     'http://localhost:3000',
     'http://127.0.0.1:5173',
@@ -135,13 +137,18 @@ MEDIA_ROOT         = BASE_DIR / 'media'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # ── Email → Gmail SMTP ─────────────────────────────────────
-EMAIL_BACKEND       = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_BACKEND       = os.environ.get(
+                        'EMAIL_BACKEND',
+                        'django.core.mail.backends.smtp.EmailBackend'
+                      )
 EMAIL_HOST          = 'smtp.gmail.com'
-EMAIL_PORT          = 587
-EMAIL_USE_TLS       = True
+EMAIL_PORT          = int(os.environ.get('EMAIL_PORT', 465))
+EMAIL_USE_TLS       = os.environ.get('EMAIL_USE_TLS', 'False') == 'True'
+EMAIL_USE_SSL       = os.environ.get('EMAIL_USE_SSL', 'True') == 'True'
 EMAIL_HOST_USER     = os.environ.get('EMAIL_HOST_USER', '')
 EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
 DEFAULT_FROM_EMAIL  = os.environ.get('EMAIL_HOST_USER', 'noreply@emspro.com')
+EMAIL_TIMEOUT       = 10   # ← 10 second timeout prevents worker kill
 
 # ── Cache (OTP Storage) ────────────────────────────────────
 CACHES = {
