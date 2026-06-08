@@ -24,18 +24,23 @@ class UserManager(BaseUserManager):
 class User(AbstractBaseUser, PermissionsMixin):
     ROLES = [('admin', 'Admin'), ('employee', 'Employee')]
 
-    email         = models.EmailField(unique=True)
-    full_name     = models.CharField(max_length=150)
-    employee_id   = models.CharField(max_length=20, unique=True)
-    phone         = models.CharField(max_length=15, blank=True)
-    department    = models.CharField(max_length=100, blank=True)
-    role          = models.CharField(max_length=10, choices=ROLES, default='employee')
-    profile_image = models.ImageField(upload_to='profiles/', blank=True, null=True)
-    is_active     = models.BooleanField(default=True)
-    is_staff      = models.BooleanField(default=False)
-    date_joined   = models.DateTimeField(auto_now_add=True)
-    otp           = models.CharField(max_length=6, blank=True)
-    otp_created   = models.DateTimeField(null=True, blank=True)
+    email            = models.EmailField(unique=True)
+    full_name        = models.CharField(max_length=150)
+    employee_id      = models.CharField(max_length=20, unique=True)
+    phone            = models.CharField(max_length=15, blank=True)
+    department       = models.CharField(max_length=100, blank=True)
+    role             = models.CharField(max_length=10, choices=ROLES, default='employee')
+    profile_image    = models.ImageField(upload_to='profiles/', blank=True, null=True)
+    is_active        = models.BooleanField(default=True)
+    is_staff         = models.BooleanField(default=False)
+    date_joined      = models.DateTimeField(auto_now_add=True)
+    otp              = models.CharField(max_length=6, blank=True)
+    otp_created      = models.DateTimeField(null=True, blank=True)
+
+    # ── Face Recognition Fields ────────────────────────────
+    face_registered  = models.BooleanField(default=False)
+    face_encoding    = models.TextField(blank=True, null=True)  # stored as JSON string
+    face_image       = models.ImageField(upload_to='faces/', blank=True, null=True)
 
     objects = UserManager()
     USERNAME_FIELD  = 'email'
