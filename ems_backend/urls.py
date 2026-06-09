@@ -14,4 +14,5 @@ urlpatterns = [
     path('api/notifications/', include('notifications.urls')),
     path('api/ai-assistant/',  include('ai_assistant.urls')),
     path('captcha/',           include('captcha.urls')),   # ← NEW
+    path('api/learning/', include('courses.urls')),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

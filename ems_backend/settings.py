@@ -44,6 +44,7 @@ INSTALLED_APPS = [
     'payroll',
     'notifications',
     'ai_assistant',
+    'courses',    # ← add this
 ]
 
 MIDDLEWARE = [
