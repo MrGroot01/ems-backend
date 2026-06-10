@@ -1,8 +1,3 @@
-"""
-ai_assistant/views.py
-Gemini-powered EMS AI Assistant
-"""
-
 import traceback
 from google import genai
 from google.genai import types
@@ -24,10 +19,9 @@ from users.models import User
 def build_context(user):
     today    = timezone.now().date()
     is_admin = user.role == 'admin' or user.is_staff or user.is_superuser
-    context_parts = []
+    parts    = []
 
-    # ── CURRENT USER INFO ──────────────────────────────────────
-    context_parts.append(
+    parts.append(
         f"LOGGED IN USER: {user.full_name}, "
         f"Role={user.role}, "
         f"Department={user.department or 'N/A'}, "
@@ -35,291 +29,248 @@ def build_context(user):
         f"Employee ID={user.employee_id}."
     )
 
-    # ── EMPLOYEES ──────────────────────────────────────────────
+    # Employees
     try:
         if is_admin:
-            all_users = User.objects.filter(is_active=True)
-            total     = all_users.count()
             emp_users = User.objects.filter(role='employee', is_active=True)
             emp_list  = ", ".join([
-                f"{u.full_name} (Dept: {u.department or 'N/A'}, ID: {u.employee_id})"
+                f"{u.full_name} (Dept:{u.department or 'N/A'}, ID:{u.employee_id})"
                 for u in emp_users[:20]
             ])
-            context_parts.append(
-                f"EMPLOYEES: Total Active Users={total}, "
-                f"Total Employees={emp_users.count()}. "
-                f"List: {emp_list}."
+            parts.append(
+                f"EMPLOYEES: Total={emp_users.count()}. List: {emp_list}."
             )
         else:
-            context_parts.append(
+            parts.append(
                 f"MY PROFILE: {user.full_name}, "
-                f"Department={user.department or 'N/A'}, "
-                f"Phone={user.phone or 'N/A'}, "
-                f"Employee ID={user.employee_id}."
+                f"Dept={user.department or 'N/A'}, "
+                f"ID={user.employee_id}."
             )
     except Exception:
-        context_parts.append("EMPLOYEES: Data unavailable.")
+        parts.append("EMPLOYEES: Data unavailable.")
 
-    # ── ATTENDANCE ─────────────────────────────────────────────
+    # Attendance
     try:
         if is_admin:
-            present = Attendance.objects.filter(date=today, status="present").count()
-            absent  = Attendance.objects.filter(date=today, status="absent").count()
-            absent_names = list(
-                Attendance.objects.filter(date=today, status="absent")
-                .select_related("employee")
-                .values_list("employee__full_name", flat=True)[:10]
-            )
-            context_parts.append(
-                f"ATTENDANCE ({today}): Present={present}, Absent={absent}. "
-                f"Absent: {', '.join(absent_names) if absent_names else 'None'}."
+            present = Attendance.objects.filter(date=today, status='present').count()
+            total   = Attendance.objects.filter(date=today).count()
+            parts.append(
+                f"ATTENDANCE TODAY ({today}): Present={present}, Total Records={total}."
             )
         else:
-            try:
-                emp = Employee.objects.get(user=user)
-                att = Attendance.objects.filter(employee=emp, date=today).first()
-            except Exception:
-                att = None
-            context_parts.append(
-                f"MY ATTENDANCE TODAY ({today}): "
-                f"{att.status if att else 'No record found'}."
+            att = Attendance.objects.filter(user=user, date=today).first()
+            parts.append(
+                f"MY ATTENDANCE TODAY: "
+                f"{'Check-in: '+str(att.check_in)+', Status: '+att.status if att else 'Not checked in yet'}."
             )
     except Exception:
-        context_parts.append("ATTENDANCE: Data unavailable.")
+        parts.append("ATTENDANCE: Data unavailable.")
 
-    # ── PAYROLL ────────────────────────────────────────────────
+    # Payroll
     try:
         if is_admin:
-            structures = SalaryStructure.objects.select_related("user").all()[:10]
+            structures = SalaryStructure.objects.select_related('user').all()[:10]
             pay_info   = ", ".join([
-                f"{s.user.full_name} (Basic=\u20b9{s.basic}, "
-                f"Gross=\u20b9{s.gross}, Net=\u20b9{s.net})"
+                f"{s.user.full_name}(Net=₹{s.net})"
                 for s in structures
             ])
-            context_parts.append(
-                f"SALARY STRUCTURES: {pay_info if pay_info else 'No data'}."
-            )
-            payslips  = Payslip.objects.select_related("user").order_by("-year", "-month")[:10]
-            slip_info = ", ".join([
-                f"{p.user.full_name} ({p.month}/{p.year}): "
-                f"Net=\u20b9{p.net}, Paid={'Yes' if p.paid else 'No'}"
-                for p in payslips
-            ])
-            context_parts.append(
-                f"RECENT PAYSLIPS: {slip_info if slip_info else 'No data'}."
-            )
+            parts.append(f"SALARY STRUCTURES: {pay_info or 'No data'}.")
         else:
             try:
                 salary = SalaryStructure.objects.get(user=user)
-                context_parts.append(
-                    f"MY SALARY: Basic=\u20b9{salary.basic}, "
-                    f"HRA=\u20b9{salary.hra}, "
-                    f"Transport=\u20b9{salary.transport}, "
-                    f"Medical=\u20b9{salary.medical}, "
-                    f"Gross=\u20b9{salary.gross}, "
-                    f"PF Deduction=\u20b9{salary.pf_deduction}, "
-                    f"Tax=\u20b9{salary.tax_deduction}, "
-                    f"Net=\u20b9{salary.net}."
+                parts.append(
+                    f"MY SALARY: Basic=₹{salary.basic}, "
+                    f"HRA=₹{salary.hra}, "
+                    f"Gross=₹{salary.gross}, "
+                    f"Net=₹{salary.net}."
                 )
             except SalaryStructure.DoesNotExist:
-                context_parts.append("MY SALARY: No salary structure assigned yet.")
-
-            slip = Payslip.objects.filter(user=user).order_by("-year", "-month").first()
+                parts.append("MY SALARY: No salary structure assigned yet.")
+            slip = Payslip.objects.filter(user=user).order_by('-year', '-month').first()
             if slip:
-                context_parts.append(
+                parts.append(
                     f"LAST PAYSLIP: {slip.month}/{slip.year}, "
-                    f"Basic=\u20b9{slip.basic}, "
-                    f"Gross=\u20b9{slip.gross}, "
-                    f"Deductions=\u20b9{slip.deductions}, "
-                    f"Net=\u20b9{slip.net}, "
-                    f"Days Worked={slip.days_worked}, "
+                    f"Net=₹{slip.net}, "
                     f"Paid={'Yes' if slip.paid else 'No'}."
                 )
-            else:
-                context_parts.append("LAST PAYSLIP: No payslip generated yet.")
     except Exception:
-        context_parts.append("PAYROLL: Data unavailable.")
+        parts.append("PAYROLL: Data unavailable.")
 
-    # ── LEAVES ─────────────────────────────────────────────────
+    # Leaves
     try:
         if is_admin:
-            pending       = Leave.objects.filter(status="pending").select_related("employee")
-            pending_count = pending.count()
-            pending_names = ", ".join([
-                f"{l.employee.full_name if hasattr(l.employee, 'full_name') else str(l.employee)}"
-                for l in pending[:10]
-            ])
-            context_parts.append(
-                f"LEAVES: Pending={pending_count}. "
-                f"Employees waiting: {pending_names if pending_names else 'None'}."
-            )
+            pending = Leave.objects.filter(status='pending').count()
+            parts.append(f"PENDING LEAVES: {pending} requests.")
         else:
-            try:
-                emp       = Employee.objects.get(user=user)
-                my_leaves = Leave.objects.filter(employee=emp).order_by("-id")[:3]
-                leave_info = ", ".join([
-                    f"{l.leave_type} ({l.status}) {l.start_date} to {l.end_date}"
-                    for l in my_leaves
-                ])
-                context_parts.append(
-                    f"MY LEAVES: {leave_info if leave_info else 'No leave records'}."
-                )
-            except Exception:
-                context_parts.append("MY LEAVES: No leave records found.")
+            my_leaves = Leave.objects.filter(user=user).order_by('-id')[:5]
+            leave_info = ", ".join([
+                f"{l.leave_type}({l.status}) {l.start_date} to {l.end_date}"
+                for l in my_leaves
+            ])
+            parts.append(
+                f"MY LEAVES: {leave_info or 'No leave records'}."
+            )
     except Exception:
-        context_parts.append("LEAVES: Data unavailable.")
+        parts.append("LEAVES: Data unavailable.")
 
-    # ── TASKS ──────────────────────────────────────────────────
+    # Tasks
     try:
         if is_admin:
             total_t   = Task.objects.count()
-            pending_t = Task.objects.filter(status__in=["pending", "todo"]).count()
-            inprog_t  = Task.objects.filter(status="in_progress").count()
-            overdue_t = Task.objects.filter(
-                due_date__lt=timezone.now(),
-                status__in=["pending", "in_progress", "todo"],
-            ).count()
-            context_parts.append(
+            pending_t = Task.objects.filter(status__in=['pending','todo']).count()
+            inprog_t  = Task.objects.filter(status='in_progress').count()
+            parts.append(
                 f"TASKS: Total={total_t}, "
                 f"Pending={pending_t}, "
-                f"In Progress={inprog_t}, "
-                f"Overdue={overdue_t}."
+                f"In Progress={inprog_t}."
             )
         else:
-            my_tasks  = Task.objects.filter(assigned_to=user).order_by("-id")[:5]
+            my_tasks  = Task.objects.filter(assigned_to=user).order_by('-id')[:5]
             task_info = ", ".join([
-                f"'{t.title}' [{t.status}] "
-                f"due {t.due_date.strftime('%b %d, %Y') if t.due_date else 'N/A'}"
+                f"'{t.title}'[{t.status}] due {t.due_date}"
                 for t in my_tasks
             ])
-            context_parts.append(
-                f"MY TASKS: {task_info if task_info else 'No tasks assigned'}."
+            parts.append(
+                f"MY TASKS: {task_info or 'No tasks assigned'}."
             )
     except Exception:
-        context_parts.append("TASKS: Data unavailable.")
+        parts.append("TASKS: Data unavailable.")
 
-    return "\n".join(context_parts)
+    return "\n".join(parts)
 
 
-SYSTEM_PROMPT_TEMPLATE = """You are an intelligent AI assistant for an Employee Management System (EMS).
-Answer questions based ONLY on the context data provided below.
+SYSTEM_PROMPT = """You are a helpful AI assistant for EMS Pro (Employee Management System).
 
 RULES:
-1. Give clear, short, and accurate answers.
-2. Use ONLY the context data — never guess or make up data.
-3. If data is not available, say: "No data found".
-4. Be professional like an HR assistant.
-5. Use the Rupee symbol for all salary amounts.
-6. If the question is unclear, ask a follow-up question.
-7. For Admin: you can see all company data.
-8. For Employee: you can only see your own personal data.
+1. Answer based ONLY on the context data provided.
+2. Be concise, clear and professional.
+3. Use ₹ for salary amounts.
+4. If data not available, say "No data found".
+5. Admin can see all company data. Employee sees only their own data.
+6. Be friendly and helpful like an HR assistant.
 
 USER ROLE: {role}
 
-CONTEXT DATA (REAL-TIME FROM DATABASE):
-{context}
-
-TONE: Professional, helpful, friendly but concise."""
+REAL-TIME DATABASE CONTEXT:
+{context}"""
 
 
-@api_view(["POST"])
+# ── Available models to try in order ──────────────────────
+GEMINI_MODELS = [
+    "gemini-2.0-flash",
+    "gemini-2.0-flash-lite",
+    "gemini-1.5-flash",
+    "gemini-1.5-flash-8b",
+    "gemini-pro",
+]
+
+
+def call_gemini(api_key, prompt):
+    """Try multiple Gemini models until one works"""
+    client = genai.Client(api_key=api_key)
+    last_error = None
+
+    for model_name in GEMINI_MODELS:
+        try:
+            print(f"[GEMINI] Trying model: {model_name}", flush=True)
+            response = client.models.generate_content(
+                model=model_name,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    max_output_tokens=1024,
+                    temperature=0.3,
+                ),
+            )
+            print(f"[GEMINI] Success with model: {model_name}", flush=True)
+            return response.text.strip(), model_name
+        except Exception as e:
+            error_str = str(e)
+            print(f"[GEMINI] Model {model_name} failed: {error_str}", flush=True)
+            last_error = e
+            # Stop trying if quota exceeded — no point trying other models
+            if '429' in error_str or 'RESOURCE_EXHAUSTED' in error_str:
+                raise e
+            continue
+
+    raise last_error
+
+
+@api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def ai_assistant_chat(request):
     """
     POST /api/ai-assistant/chat/
-    Body: { "message": "How many employees?", "history": [] }
+    Body: { "message": "...", "history": [] }
     """
-    user_message = request.data.get("message", "").strip()
-    history      = request.data.get("history", [])
+    user_message = request.data.get('message', '').strip()
+    history      = request.data.get('history', [])
 
     if not user_message:
         return Response(
-            {"error": "Message is required."},
-            status=status.HTTP_400_BAD_REQUEST,
+            {'error': 'Message is required.'},
+            status=status.HTTP_400_BAD_REQUEST
         )
 
+    api_key = getattr(settings, 'GEMINI_API_KEY', None)
+    if not api_key:
+        return Response({
+            'reply': '⚠️ GEMINI_API_KEY not set. Please add it to your environment variables.',
+            'role':  'unknown',
+        })
+
     context  = build_context(request.user)
-    role_str = "Admin" if (
+    role_str = 'Admin' if (
         request.user.role == 'admin' or
         request.user.is_staff or
         request.user.is_superuser
-    ) else "Employee"
+    ) else 'Employee'
 
-    system_prompt = SYSTEM_PROMPT_TEMPLATE.format(
-        role=role_str,
-        context=context,
-    )
+    system_prompt = SYSTEM_PROMPT.format(role=role_str, context=context)
 
-    history_text = ""
-    for turn in history[-10:]:
-        if turn.get("role") == "user":
+    # Build history text
+    history_text = ''
+    for turn in history[-8:]:
+        if turn.get('role') == 'user':
             history_text += f"User: {turn['content']}\n"
-        elif turn.get("role") == "assistant":
+        elif turn.get('role') == 'assistant':
             history_text += f"Assistant: {turn['content']}\n"
 
     full_prompt = (
         f"{system_prompt}\n\n"
-        f"{history_text}"
+        f"CONVERSATION HISTORY:\n{history_text}\n"
         f"User: {user_message}\n"
         f"Assistant:"
     )
 
-    # ── Call Gemini API ────────────────────────────────────────
     try:
-        api_key = getattr(settings, 'GEMINI_API_KEY', None)
-
-        # Check key exists
-        if not api_key or api_key == 'your-gemini-key-here':
-            return Response({
-                "reply": "⚠️ GEMINI_API_KEY is not set in settings.py. Please add your API key.",
-                "role": role_str,
-            })
-
-        client = genai.Client(api_key=api_key)
-
-        response = client.models.generate_content(
-            model="gemini-1.5-flash",
-            contents=full_prompt,
-            config=types.GenerateContentConfig(
-                max_output_tokens=1024,
-                temperature=0.3,
-            ),
-        )
-        reply = response.text.strip()
+        reply, used_model = call_gemini(api_key, full_prompt)
+        print(f"[AI] Response generated using {used_model}", flush=True)
 
     except Exception as e:
-        # Print full traceback to Django terminal for debugging
         traceback.print_exc()
         error_msg = str(e)
-        print(f"\n[AI ASSISTANT ERROR]: {error_msg}\n")
+        print(f"[AI ERROR] {error_msg}", flush=True)
 
-        if "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg:
+        if '429' in error_msg or 'RESOURCE_EXHAUSTED' in error_msg:
             reply = (
-                "⚠️ Free quota limit reached. "
-                "Please wait 1-2 minutes and try again, "
-                "or create a new API key at https://aistudio.google.com/app/apikey"
+                "⚠️ API quota exceeded. Please wait a few minutes and try again.\n\n"
+                "To get a new free API key: https://aistudio.google.com/app/apikey"
             )
-        elif "401" in error_msg or "API_KEY_INVALID" in error_msg or "invalid" in error_msg.lower():
+        elif '401' in error_msg or 'API_KEY_INVALID' in error_msg:
             reply = (
-                "⚠️ Invalid Gemini API key. "
-                "Please check your GEMINI_API_KEY in settings.py. "
-                "Get a free key at https://aistudio.google.com/app/apikey"
+                "⚠️ Invalid API key. Please update GEMINI_API_KEY in your "
+                "Render environment variables.\n\n"
+                "Get a new key: https://aistudio.google.com/app/apikey"
             )
-        elif "403" in error_msg or "PERMISSION_DENIED" in error_msg:
+        elif '403' in error_msg or 'PERMISSION_DENIED' in error_msg:
             reply = (
                 "⚠️ API key doesn't have permission. "
-                "Make sure your key has Gemini API access enabled."
-            )
-        elif "404" in error_msg or "not found" in error_msg.lower():
-            reply = (
-                "⚠️ Model not found. "
-                "The gemini-1.5-flash model may not be available in your region."
+                "Make sure Gemini API is enabled for your key."
             )
         else:
-            # Show actual error in development so we can debug
             reply = f"⚠️ AI Error: {error_msg[:200]}"
 
     return Response({
-        "reply": reply,
-        "role":  role_str,
+        'reply': reply,
+        'role':  role_str,
     })
