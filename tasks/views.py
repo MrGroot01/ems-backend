@@ -34,6 +34,33 @@ def generate_jitsi_link(employee_name, employee_id):
 
 
 # =========================================================
+# Helper — create Notification using correct field name
+# Your Notification model uses 'user' not 'recipient'
+# =========================================================
+def create_notification(user, title, message, ntype='warning', sender=None):
+    """
+    Wrapper that handles both field naming conventions:
+      - user=   (your actual model)
+      - recipient= (alternative naming)
+    Also safely ignores 'sender' if your model doesn't have it.
+    """
+    try:
+        # Try with 'user' field (your model's actual field)
+        kwargs = dict(user=user, title=title, message=message, type=ntype)
+        # Add sender only if the model has that field
+        try:
+            Notification._meta.get_field('sender')
+            kwargs['sender'] = sender
+        except Exception:
+            pass
+        Notification.objects.create(**kwargs)
+        return True
+    except Exception as e:
+        logger.error(f'create_notification failed: {e}')
+        return False
+
+
+# =========================================================
 # Task ViewSet
 # =========================================================
 class TaskViewSet(viewsets.ModelViewSet):
@@ -52,23 +79,16 @@ class TaskViewSet(viewsets.ModelViewSet):
 
     # =====================================================
     # CREATE TASK
-    # Notification wrapped in try/except so task always saves
     # =====================================================
     def perform_create(self, serializer):
         task = serializer.save(assigned_by=self.request.user)
-        try:
-            Notification.objects.create(
-                recipient=task.assigned_to,
-                sender=self.request.user,
-                title='New Task Assigned',
-                message=(
-                    f'You have been assigned: '
-                    f'"{task.title}" – due {task.due_date}'
-                ),
-                type='task',
-            )
-        except Exception as e:
-            logger.error(f'Notification failed for task {task.id}: {e}')
+        create_notification(
+            user=task.assigned_to,
+            title='New Task Assigned',
+            message=f'You have been assigned: "{task.title}" – due {task.due_date}',
+            ntype='task',
+            sender=self.request.user,
+        )
 
     # =====================================================
     # UPDATE PROGRESS
@@ -157,48 +177,38 @@ class TaskViewSet(viewsets.ModelViewSet):
             return Response({'error': 'Employee not found'}, status=404)
 
         pending_tasks = Task.objects.filter(
-            assigned_to=employee,
-            status__in=['todo', 'in_progress']
+            assigned_to=employee, status__in=['todo', 'in_progress']
         )
         task_titles = ", ".join(pending_tasks.values_list('title', flat=True)[:3])
-
-        emp_id   = getattr(employee, 'employee_id', None) or str(employee.pk)
-        emp_name = getattr(employee, 'full_name', None) or employee.username or str(employee.pk)
-
+        emp_id      = getattr(employee, 'employee_id', None) or str(employee.pk)
+        emp_name    = getattr(employee, 'full_name', None) or employee.username or str(employee.pk)
         meeting_link = generate_jitsi_link(emp_name, emp_id)
 
-        try:
-            Notification.objects.create(
-                recipient=employee,
-                sender=request.user,
-                title='📅 Meeting Scheduled',
-                message=(
-                    f"A meeting has been scheduled regarding your pending tasks: "
-                    f"{task_titles}\n\n"
-                    f"🔗 Join Meeting:\n{meeting_link}\n\n"
-                    f"Please join at the scheduled time."
-                ),
-                type='warning',
-            )
-        except Exception as e:
-            logger.error(f'Employee meeting notification failed: {e}')
+        create_notification(
+            user=employee,
+            title='📅 Meeting Scheduled',
+            message=(
+                f"A meeting has been scheduled regarding your pending tasks: "
+                f"{task_titles}\n\n🔗 Join Meeting:\n{meeting_link}\n\n"
+                f"Please join at the scheduled time."
+            ),
+            ntype='warning',
+            sender=request.user,
+        )
 
         admins = User.objects.filter(role='admin', is_active=True)
         for admin in admins:
-            try:
-                Notification.objects.create(
-                    recipient=admin,
-                    sender=request.user,
-                    title=f'📅 Meeting Scheduled: {emp_name}',
-                    message=(
-                        f"Meeting scheduled for {emp_name}\n\n"
-                        f"Pending Tasks: {task_titles}\n\n"
-                        f"🔗 Meeting Link:\n{meeting_link}"
-                    ),
-                    type='warning',
-                )
-            except Exception as e:
-                logger.error(f'Admin meeting notification failed: {e}')
+            create_notification(
+                user=admin,
+                title=f'📅 Meeting Scheduled: {emp_name}',
+                message=(
+                    f"Meeting scheduled for {emp_name}\n\n"
+                    f"Pending Tasks: {task_titles}\n\n"
+                    f"🔗 Meeting Link:\n{meeting_link}"
+                ),
+                ntype='warning',
+                sender=request.user,
+            )
 
         return Response({
             'message':      f'Meeting scheduled for {emp_name}',
@@ -210,8 +220,7 @@ class TaskViewSet(viewsets.ModelViewSet):
     # =====================================================
     # AUTO MEETING ON 2+ OVERDUE TASKS
     # Called every 60s by TaskWarningBanner
-    # Bulletproof: every step wrapped in try/except
-    # meeting_link ALWAYS returned even if notifications fail
+    # Uses 'user' field (not 'recipient') for Notification
     # =====================================================
     @action(detail=False, methods=['post'])
     def check_overdue_meeting(self, request):
@@ -219,7 +228,7 @@ class TaskViewSet(viewsets.ModelViewSet):
         now   = timezone.now()
         today = now.date()
 
-        # ── Find OVERDUE tasks ────────────────────────────────
+        # ── Find overdue tasks ────────────────────────────────
         overdue_qs = Task.objects.filter(
             assigned_to=user,
             status__in=['todo', 'in_progress'],
@@ -233,15 +242,20 @@ class TaskViewSet(viewsets.ModelViewSet):
                 'meeting_scheduled': False,
             })
 
-        # ── Don't spam: skip if meeting scheduled in last 20 min ─
-        recent_meeting = Notification.objects.filter(
-            recipient=user,
-            title__icontains='Meeting Scheduled',
-            created_at__gte=now - timedelta(minutes=20),
-        ).order_by('-created_at').first()
+        # ── Don't spam: check if meeting was scheduled in last 20 min ──
+        # Uses 'user' field (your actual Notification model field)
+        try:
+            recent_meeting = Notification.objects.filter(
+                user=user,                                      # ← 'user' not 'recipient'
+                title__icontains='Meeting Scheduled',
+                created_at__gte=now - timedelta(minutes=20),
+            ).order_by('-created_at').first()
+        except Exception as e:
+            logger.error(f'recent_meeting query failed: {e}')
+            recent_meeting = None
 
         if recent_meeting:
-            match = re.search(r'https://meet\.jit\.si/\S+', recent_meeting.message)
+            match = re.search(r'https://meet\.jit\.si/\S+', recent_meeting.message or '')
             return Response({
                 'overdue_count':     overdue_count,
                 'meeting_scheduled': False,
@@ -250,7 +264,7 @@ class TaskViewSet(viewsets.ModelViewSet):
             })
 
         # ── Safely resolve user fields ────────────────────────
-        emp_id   = (
+        emp_id = (
             getattr(user, 'employee_id', None) or
             getattr(user, 'emp_id', None) or
             str(user.pk)
@@ -276,49 +290,40 @@ class TaskViewSet(viewsets.ModelViewSet):
         overdue_titles   = list(overdue_qs.values_list('title', flat=True)[:5])
         tasks_list_str   = ", ".join(overdue_titles)
 
-        notif_created = False
-
         # ── Notify employee ───────────────────────────────────
-        try:
-            Notification.objects.create(
-                recipient=user,
-                sender=None,
-                title='📅 Meeting Scheduled — Overdue Tasks',
-                message=(
-                    f"You currently have {overdue_count} overdue tasks: "
-                    f"{tasks_list_str}\n\n"
-                    f"A meeting with your manager has been automatically "
-                    f"scheduled at {meeting_time_str} (in {minutes_away} minutes).\n\n"
-                    f"🔗 Join Meeting:\n{meeting_link}"
-                ),
-                type='warning',
-            )
-            notif_created = True
-        except Exception as e:
-            logger.error(f'Employee overdue notification failed: {e}')
+        notif_created = create_notification(
+            user=user,
+            title='📅 Meeting Scheduled — Overdue Tasks',
+            message=(
+                f"You currently have {overdue_count} overdue tasks: "
+                f"{tasks_list_str}\n\n"
+                f"A meeting with your manager has been automatically "
+                f"scheduled at {meeting_time_str} (in {minutes_away} minutes).\n\n"
+                f"🔗 Join Meeting:\n{meeting_link}"
+            ),
+            ntype='warning',
+            sender=None,
+        )
 
         # ── Notify admins ─────────────────────────────────────
         try:
             admins = User.objects.filter(role='admin', is_active=True)
             for admin in admins:
-                try:
-                    Notification.objects.create(
-                        recipient=admin,
-                        sender=user,
-                        title=f'📅 Meeting Scheduled: {emp_name}',
-                        message=(
-                            f"{emp_name} has {overdue_count} overdue tasks: "
-                            f"{tasks_list_str}\n\n"
-                            f"Meeting auto-scheduled at {meeting_time_str} "
-                            f"(in {minutes_away} minutes).\n\n"
-                            f"🔗 Meeting Link:\n{meeting_link}"
-                        ),
-                        type='warning',
-                    )
-                except Exception as e:
-                    logger.error(f'Admin overdue notification failed: {e}')
+                create_notification(
+                    user=admin,
+                    title=f'📅 Meeting Scheduled: {emp_name}',
+                    message=(
+                        f"{emp_name} has {overdue_count} overdue tasks: "
+                        f"{tasks_list_str}\n\n"
+                        f"Meeting auto-scheduled at {meeting_time_str} "
+                        f"(in {minutes_away} minutes).\n\n"
+                        f"🔗 Meeting Link:\n{meeting_link}"
+                    ),
+                    ntype='warning',
+                    sender=user,
+                )
         except Exception as e:
-            logger.error(f'Admin query failed: {e}')
+            logger.error(f'Admin notifications failed: {e}')
             admins = User.objects.none()
 
         # ── Send emails ───────────────────────────────────────
@@ -329,19 +334,15 @@ class TaskViewSet(viewsets.ModelViewSet):
             )
             all_emails = [user.email] + admin_emails
             all_emails = [e for e in all_emails if e]
-
             if all_emails:
                 send_mail(
-                    subject=(
-                        f'📅 EMS Pro — Meeting Scheduled '
-                        f'({overdue_count} Overdue Tasks)'
-                    ),
+                    subject=f'📅 EMS Pro — Meeting Scheduled ({overdue_count} Overdue Tasks)',
                     message=(
                         f"Hello,\n\n"
-                        f"{emp_name} currently has {overdue_count} overdue tasks:\n"
+                        f"{emp_name} has {overdue_count} overdue tasks:\n"
                         f"{tasks_list_str}\n\n"
-                        f"A meeting has been automatically scheduled at "
-                        f"{meeting_time_str} (in {minutes_away} minutes).\n\n"
+                        f"Meeting auto-scheduled at {meeting_time_str} "
+                        f"(in {minutes_away} minutes).\n\n"
                         f"Join here:\n{meeting_link}\n\n"
                         f"— EMS Pro (automated message)"
                     ),
