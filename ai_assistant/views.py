@@ -1,4 +1,3 @@
-import time
 import traceback
 import requests as http_requests
 from django.conf import settings
@@ -51,9 +50,7 @@ def build_context(user):
         if is_admin:
             present = Attendance.objects.filter(date=today, status='present').count()
             total   = Attendance.objects.filter(date=today).count()
-            parts.append(
-                f"ATTENDANCE TODAY ({today}): Present={present}, Records={total}."
-            )
+            parts.append(f"ATTENDANCE TODAY ({today}): Present={present}, Records={total}.")
         else:
             att = Attendance.objects.filter(user=user, date=today).first()
             parts.append(
@@ -67,25 +64,17 @@ def build_context(user):
     try:
         if is_admin:
             structures = SalaryStructure.objects.select_related('user').all()[:10]
-            pay_info   = ", ".join([
-                f"{s.user.full_name}(Net=₹{s.net})" for s in structures
-            ])
+            pay_info   = ", ".join([f"{s.user.full_name}(Net=₹{s.net})" for s in structures])
             parts.append(f"SALARIES: {pay_info or 'No data'}.")
         else:
             try:
                 s = SalaryStructure.objects.get(user=user)
-                parts.append(
-                    f"MY SALARY: Basic=₹{s.basic}, HRA=₹{s.hra}, "
-                    f"Gross=₹{s.gross}, Net=₹{s.net}."
-                )
+                parts.append(f"MY SALARY: Basic=₹{s.basic}, HRA=₹{s.hra}, Gross=₹{s.gross}, Net=₹{s.net}.")
             except SalaryStructure.DoesNotExist:
                 parts.append("MY SALARY: Not assigned yet.")
             slip = Payslip.objects.filter(user=user).order_by('-year','-month').first()
             if slip:
-                parts.append(
-                    f"LAST PAYSLIP: {slip.month}/{slip.year}, "
-                    f"Net=₹{slip.net}, Paid={'Yes' if slip.paid else 'No'}."
-                )
+                parts.append(f"LAST PAYSLIP: {slip.month}/{slip.year}, Net=₹{slip.net}, Paid={'Yes' if slip.paid else 'No'}.")
     except Exception:
         parts.append("PAYROLL: Data unavailable.")
 
@@ -96,10 +85,7 @@ def build_context(user):
             parts.append(f"PENDING LEAVES: {pending}.")
         else:
             my_leaves = Leave.objects.filter(user=user).order_by('-id')[:5]
-            info = ", ".join([
-                f"{l.leave_type}({l.status}){l.start_date}-{l.end_date}"
-                for l in my_leaves
-            ])
+            info = ", ".join([f"{l.leave_type}({l.status}){l.start_date}-{l.end_date}" for l in my_leaves])
             parts.append(f"MY LEAVES: {info or 'None'}.")
     except Exception:
         parts.append("LEAVES: Data unavailable.")
@@ -114,9 +100,7 @@ def build_context(user):
             )
         else:
             my_tasks = Task.objects.filter(assigned_to=user).order_by('-id')[:5]
-            info = ", ".join([
-                f"'{t.title}'[{t.status}]due:{t.due_date}" for t in my_tasks
-            ])
+            info = ", ".join([f"'{t.title}'[{t.status}]due:{t.due_date}" for t in my_tasks])
             parts.append(f"MY TASKS: {info or 'None'}.")
     except Exception:
         parts.append("TASKS: Data unavailable.")
@@ -139,8 +123,60 @@ CONTEXT:
 ---"""
 
 
+# ── Groq (Primary) ────────────────────────────────────────────
+def call_groq(api_key, prompt):
+    """Call Groq API — fast and free"""
+    print("[GROQ] Trying llama-3.3-70b...", flush=True)
+
+    models = [
+        "llama-3.3-70b-versatile",
+        "llama-3.1-8b-instant",
+        "mixtral-8x7b-32768",
+    ]
+
+    last_err = None
+    for model in models:
+        try:
+            print(f"[GROQ] Trying {model}...", flush=True)
+            res = http_requests.post(
+                'https://api.groq.com/openai/v1/chat/completions',
+                headers={
+                    'Authorization': f'Bearer {api_key}',
+                    'Content-Type':  'application/json',
+                },
+                json={
+                    'model':       model,
+                    'max_tokens':  512,
+                    'temperature': 0.3,
+                    'messages': [
+                        {'role': 'user', 'content': prompt}
+                    ],
+                },
+                timeout=30,
+            )
+            if res.status_code == 200:
+                data  = res.json()
+                reply = data['choices'][0]['message']['content'].strip()
+                print(f"[GROQ] ✅ {model} worked!", flush=True)
+                return reply
+            elif res.status_code == 429:
+                print(f"[GROQ] ⚠️ {model} rate limited, trying next...", flush=True)
+                last_err = Exception(f"Groq rate limit on {model}")
+                continue
+            else:
+                raise Exception(f"Groq error {res.status_code}: {res.text[:200]}")
+        except Exception as e:
+            if 'rate limit' in str(e).lower() or '429' in str(e):
+                last_err = e
+                continue
+            raise e
+
+    raise last_err or Exception("All Groq models failed")
+
+
+# ── Gemini (Fallback 1) ───────────────────────────────────────
 def call_gemini(api_key, prompt):
-    """Try Gemini models"""
+    """Try Gemini as fallback"""
     try:
         from google import genai
         from google.genai import types
@@ -148,11 +184,7 @@ def call_gemini(api_key, prompt):
         raise Exception("google-genai not installed")
 
     client = genai.Client(api_key=api_key)
-    models = [
-        "gemini-2.0-flash",
-        "gemini-1.5-flash",
-        "gemini-1.5-flash-8b",
-    ]
+    models = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-flash-8b"]
 
     last_err = None
     for model in models:
@@ -161,10 +193,7 @@ def call_gemini(api_key, prompt):
             res = client.models.generate_content(
                 model=model,
                 contents=prompt,
-                config=types.GenerateContentConfig(
-                    max_output_tokens=512,
-                    temperature=0.3,
-                ),
+                config=types.GenerateContentConfig(max_output_tokens=512, temperature=0.3),
             )
             print(f"[GEMINI] ✅ {model} worked!", flush=True)
             return res.text.strip()
@@ -172,14 +201,15 @@ def call_gemini(api_key, prompt):
             print(f"[GEMINI] ❌ {model}: {str(e)[:100]}", flush=True)
             last_err = e
             if '429' in str(e) or 'RESOURCE_EXHAUSTED' in str(e):
-                continue  # try next model
+                continue
             raise e
 
     raise last_err or Exception("All Gemini models failed")
 
 
+# ── Anthropic (Fallback 2) ────────────────────────────────────
 def call_anthropic(api_key, prompt):
-    """Use Anthropic Claude as fallback"""
+    """Use Anthropic Claude as last fallback"""
     print("[ANTHROPIC] Trying Claude...", flush=True)
     res = http_requests.post(
         'https://api.anthropic.com/v1/messages',
@@ -196,14 +226,13 @@ def call_anthropic(api_key, prompt):
         timeout=30,
     )
     if res.status_code == 200:
-        data  = res.json()
-        reply = data['content'][0]['text'].strip()
+        reply = res.json()['content'][0]['text'].strip()
         print("[ANTHROPIC] ✅ Claude responded!", flush=True)
         return reply
-    else:
-        raise Exception(f"Anthropic error {res.status_code}: {res.text[:200]}")
+    raise Exception(f"Anthropic error {res.status_code}: {res.text[:200]}")
 
 
+# ── Main view ─────────────────────────────────────────────────
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def ai_assistant_chat(request):
@@ -211,10 +240,7 @@ def ai_assistant_chat(request):
     history      = request.data.get('history', [])
 
     if not user_message:
-        return Response(
-            {'error': 'Message is required.'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+        return Response({'error': 'Message is required.'}, status=status.HTTP_400_BAD_REQUEST)
 
     context  = build_context(request.user)
     role_str = 'Admin' if (
@@ -239,24 +265,29 @@ def ai_assistant_chat(request):
         f"Assistant:"
     )
 
-    reply     = None
-    used_api  = None
+    reply    = None
+    used_api = None
 
-    # ── Try Gemini first ──────────────────────────────────
-    gemini_key = getattr(settings, 'GEMINI_API_KEY', None)
-    if gemini_key:
+    # 1️⃣ Try Groq first (fast + free)
+    groq_key = getattr(settings, 'GROQ_API_KEY', None)
+    if groq_key:
         try:
-            reply    = call_gemini(gemini_key, full_prompt)
-            used_api = 'Gemini'
+            reply    = call_groq(groq_key, full_prompt)
+            used_api = 'Groq'
         except Exception as e:
-            err = str(e)
-            print(f"[AI] Gemini failed: {err[:100]}", flush=True)
-            if '429' in err or 'RESOURCE_EXHAUSTED' in err or 'quota' in err.lower():
-                print("[AI] Gemini quota exceeded, trying Anthropic...", flush=True)
-            else:
-                reply = f"⚠️ Gemini Error: {err[:150]}"
+            print(f"[AI] Groq failed: {str(e)[:100]}", flush=True)
 
-    # ── Fallback to Anthropic Claude ──────────────────────
+    # 2️⃣ Fallback to Gemini
+    if reply is None:
+        gemini_key = getattr(settings, 'GEMINI_API_KEY', None)
+        if gemini_key:
+            try:
+                reply    = call_gemini(gemini_key, full_prompt)
+                used_api = 'Gemini'
+            except Exception as e:
+                print(f"[AI] Gemini failed: {str(e)[:100]}", flush=True)
+
+    # 3️⃣ Fallback to Anthropic
     if reply is None:
         anthropic_key = getattr(settings, 'ANTHROPIC_API_KEY', None)
         if anthropic_key:
@@ -265,16 +296,13 @@ def ai_assistant_chat(request):
                 used_api = 'Claude'
             except Exception as e:
                 print(f"[AI] Anthropic failed: {str(e)[:100]}", flush=True)
-                reply = None
 
-    # ── Both failed ───────────────────────────────────────
+    # All failed
     if reply is None:
         reply = (
             "⚠️ AI service temporarily unavailable.\n\n"
-            "Your Gemini API quota is exhausted. "
-            "Please get a new API key:\n"
-            "👉 https://aistudio.google.com/app/apikey\n\n"
-            "Then update GEMINI_API_KEY in Render environment variables."
+            "Please check your GROQ_API_KEY in Render environment variables.\n"
+            "Get a free key at: https://console.groq.com"
         )
 
     if used_api:
